@@ -14,6 +14,41 @@
 ###########################################
 # Bitcoind
 ###########################################
+# Bitcoin Knots 29.4.3rc5 community test build from knots-dev, for the target platform.
+# The keyring must hold exactly the pinned key, SHA256SUMS must match its pinned hash and carry a good
+# signature from that key, and the tarball must match SHA256SUMS.
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS knotsdev_29_4_3_rc5
+ARG TARGETARCH
+ARG KNOTSDEV_VERSION=29.4.3.knots20260508rc5
+ARG KNOTSDEV_SHA256SUMS=7dc58ee2cd8877813bfa84a0c078d685ddc03ad2d0bf8c9eb602f444590798b7
+ENV KNOTSDEV_SIGNER=A47D99B6DB0D715D40C59A2023AE8A8EA7E24E38
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg \
+ && rm -rf /var/lib/apt/lists/*
+COPY knots-dev/keys/ /tmp/knotsdev-keys/
+WORKDIR /tmp/knotsdev
+RUN set -e; \
+    export GNUPGHOME="$(mktemp -d)" LC_ALL=C; \
+    case "${TARGETARCH}" in amd64) ARCH=x86_64 ;; arm64) ARCH=aarch64 ;; *) echo "Unsupported TARGETARCH ${TARGETARCH}"; exit 1 ;; esac; \
+    gpg --quiet --import /tmp/knotsdev-keys/*.asc; \
+    if [ "$(gpg --with-colons --list-keys | grep -c '^pub:')" != 1 ] || \
+       [ "$(gpg --with-colons --list-keys | awk -F: '/^fpr:/{print $10; exit}')" != "${KNOTSDEV_SIGNER}" ]; then \
+        echo "KEYRING IS NOT EXACTLY THE PINNED KNOTS-DEV KEY"; exit 1; \
+    fi; \
+    TARBALL="bitcoin-${KNOTSDEV_VERSION}-${ARCH}-linux-gnu.tar.gz"; \
+    BASE="https://github.com/knots-dev/bitcoin/releases/download/v${KNOTSDEV_VERSION}"; \
+    curl -fsSL --fail-early -o SHA256SUMS "${BASE}/SHA256SUMS" -o SHA256SUMS.asc "${BASE}/SHA256SUMS.asc" -o "${TARBALL}" "${BASE}/${TARBALL}"; \
+    echo "${KNOTSDEV_SHA256SUMS}  SHA256SUMS" | sha256sum -c -; \
+    gpg --status-fd 1 --verify SHA256SUMS.asc SHA256SUMS > verify.txt 2>/dev/null || true; \
+    if ! grep -q '^\[GNUPG:\] GOODSIG ' verify.txt || \
+       ! grep -q "^\[GNUPG:\] VALIDSIG .* ${KNOTSDEV_SIGNER}\$" verify.txt; then \
+        cat verify.txt; echo "SHA256SUMS IS NOT SIGNED BY THE PINNED KNOTS-DEV KEY"; exit 1; \
+    fi; \
+    grep " ${TARBALL}\$" SHA256SUMS | sha256sum -c -; \
+    mkdir -p /out; \
+    tar -xzf "${TARBALL}" -C /out --strip-components=2 "bitcoin-${KNOTSDEV_VERSION}/bin/bitcoind" "bitcoin-${KNOTSDEV_VERSION}/bin/bitcoin-cli"; \
+    echo "knots-dev ${KNOTSDEV_VERSION} ${ARCH}: SHA256SUMS signed by ${KNOTSDEV_SIGNER}"; \
+    sha256sum /out/bitcoind /out/bitcoin-cli
+
 FROM ghcr.io/retropex/bitcoin:29.4.2.knots20260508@sha256:0e634291a038dfc64b8fe0b6e7d12828f269e8592879811f7c04d4fabffe9f97 AS bitcoind_29_4_5
 FROM ghcr.io/retropex/bitcoin:29.4.2.knots20260508rc2@sha256:e464c954db9e803696e7aebc4b2fe5167b4b155647e2e08875a85cf4ebb601b8 AS bitcoind_29_4_4
 FROM ghcr.io/retropex/bitcoin:29.4.1.knots20260508@sha256:eab5815b272f99b33e8170a008d7ac18005c8c824383b93276c0a178e335183b AS bitcoind_29_4_3
@@ -57,7 +92,9 @@ WORKDIR /repo/apps/backend
 VOLUME /data
 
 # bitcoind binaries
-RUN mkdir -p /opt/bitcoind/v29.4.2.knots20260508 /opt/bitcoind/v29.4.2.knots20260508rc2 /opt/bitcoind/v29.4.1.knots20260508 /opt/bitcoind/v29.4.1.knots20260508rc5 /opt/bitcoind/v29.4.1.knots20260508rc4 /opt/bitcoind/v29.4.knots20260508 /opt/bitcoind/v29.3.knots20260508 /opt/bitcoind/v29.3.knots20260507 /opt/bitcoind/v29.3.knots20260210 /opt/bitcoind/v29.2.knots20251110 /opt/bitcoind/v29.2 /opt/bitcoind/v29.1
+RUN mkdir -p /opt/bitcoind/v29.4.3.knots20260508rc5 /opt/bitcoind/v29.4.2.knots20260508 /opt/bitcoind/v29.4.2.knots20260508rc2 /opt/bitcoind/v29.4.1.knots20260508 /opt/bitcoind/v29.4.1.knots20260508rc5 /opt/bitcoind/v29.4.1.knots20260508rc4 /opt/bitcoind/v29.4.knots20260508 /opt/bitcoind/v29.3.knots20260508 /opt/bitcoind/v29.3.knots20260507 /opt/bitcoind/v29.3.knots20260210 /opt/bitcoind/v29.2.knots20251110 /opt/bitcoind/v29.2 /opt/bitcoind/v29.1
+COPY --from=knotsdev_29_4_3_rc5 /out/bitcoind    /opt/bitcoind/v29.4.3.knots20260508rc5/bitcoind
+COPY --from=knotsdev_29_4_3_rc5 /out/bitcoin-cli /opt/bitcoind/v29.4.3.knots20260508rc5/bitcoin-cli
 COPY --from=bitcoind_29_4_5 /bin/bitcoind    /opt/bitcoind/v29.4.2.knots20260508/bitcoind
 COPY --from=bitcoind_29_4_5 /bin/bitcoin-cli /opt/bitcoind/v29.4.2.knots20260508/bitcoin-cli
 COPY --from=bitcoind_29_4_4 /bin/bitcoind    /opt/bitcoind/v29.4.2.knots20260508rc2/bitcoind
@@ -88,7 +125,7 @@ RUN chown 1000:1000 /opt/bitcoind
 
 # Symbolic link for default bitcoind binary
 # By default we point to the latest version of Bitcoin Knots
-RUN ln -sfn /opt/bitcoind/v29.4.2.knots20260508 /opt/bitcoind/current
+RUN ln -sfn /opt/bitcoind/v29.4.3.knots20260508rc5 /opt/bitcoind/current
 RUN ln -sfn /opt/bitcoind/current/bitcoind    /usr/local/bin/bitcoind
 RUN ln -sfn /opt/bitcoind/current/bitcoin-cli /usr/local/bin/bitcoin-cli
 
@@ -137,7 +174,9 @@ COPY --from=app-builder /repo/libs/settings/dist ./libs/settings/dist
 COPY --from=app-builder /repo/libs/shared-types/dist ./libs/shared-types/dist
 
 # bitcoind binaries
-RUN mkdir -p /opt/bitcoind/v29.4.2.knots20260508 /opt/bitcoind/v29.4.2.knots20260508rc2 /opt/bitcoind/v29.4.1.knots20260508 /opt/bitcoind/v29.4.1.knots20260508rc5 /opt/bitcoind/v29.4.1.knots20260508rc4 /opt/bitcoind/v29.4.knots20260508 /opt/bitcoind/v29.3.knots20260508 /opt/bitcoind/v29.3.knots20260507 /opt/bitcoind/v29.3.knots20260210 /opt/bitcoind/v29.2.knots20251110 /opt/bitcoind/v29.2 /opt/bitcoind/v29.1
+RUN mkdir -p /opt/bitcoind/v29.4.3.knots20260508rc5 /opt/bitcoind/v29.4.2.knots20260508 /opt/bitcoind/v29.4.2.knots20260508rc2 /opt/bitcoind/v29.4.1.knots20260508 /opt/bitcoind/v29.4.1.knots20260508rc5 /opt/bitcoind/v29.4.1.knots20260508rc4 /opt/bitcoind/v29.4.knots20260508 /opt/bitcoind/v29.3.knots20260508 /opt/bitcoind/v29.3.knots20260507 /opt/bitcoind/v29.3.knots20260210 /opt/bitcoind/v29.2.knots20251110 /opt/bitcoind/v29.2 /opt/bitcoind/v29.1
+COPY --from=knotsdev_29_4_3_rc5 /out/bitcoind    /opt/bitcoind/v29.4.3.knots20260508rc5/bitcoind
+COPY --from=knotsdev_29_4_3_rc5 /out/bitcoin-cli /opt/bitcoind/v29.4.3.knots20260508rc5/bitcoin-cli
 COPY --from=bitcoind_29_4_5 /bin/bitcoind    /opt/bitcoind/v29.4.2.knots20260508/bitcoind
 COPY --from=bitcoind_29_4_5 /bin/bitcoin-cli /opt/bitcoind/v29.4.2.knots20260508/bitcoin-cli
 COPY --from=bitcoind_29_4_4 /bin/bitcoind    /opt/bitcoind/v29.4.2.knots20260508rc2/bitcoind
@@ -168,7 +207,7 @@ RUN chown 1000:1000 /opt/bitcoind
 
 # Symbolic link for default bitcoind binary
 # By default we point to the latest version of Bitcoin Knots
-RUN ln -sfn /opt/bitcoind/v29.4.2.knots20260508 /opt/bitcoind/current
+RUN ln -sfn /opt/bitcoind/v29.4.3.knots20260508rc5 /opt/bitcoind/current
 RUN ln -sfn /opt/bitcoind/current/bitcoind    /usr/local/bin/bitcoind
 RUN ln -sfn /opt/bitcoind/current/bitcoin-cli /usr/local/bin/bitcoin-cli
 
@@ -182,6 +221,10 @@ RUN mkdir -p /home/node \
  RUN apt-get update && apt-get install -y \
     curl
 
+
+# The knots-dev release links everything but glibc in; fail the build if this base lacks a library.
+RUN if ldd /opt/bitcoind/v29.4.3.knots20260508rc5/bitcoind /opt/bitcoind/v29.4.3.knots20260508rc5/bitcoin-cli | grep 'not found'; then exit 1; fi \
+ && d="$(mktemp -d)" && /opt/bitcoind/v29.4.3.knots20260508rc5/bitcoind -datadir="$d" -version | grep -F 'knots20260508rc5' && rm -rf "$d"
 
 ENV NODE_ENV=production
 
