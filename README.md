@@ -1,3 +1,5 @@
+> **knots-dev copy.** This is Leo Haf's Bitcoin Knots app for Umbrel with one addition: Bitcoin Knots 29.4.3rc5, a community test build that is not an official Bitcoin Knots release, as the default version. The image build downloads it from the [knots-dev release](https://github.com/knots-dev/bitcoin/releases/tag/v29.4.3.knots20260508rc5) and checks it against `SHA256SUMS` signed by `A47D 99B6 DB0D 715D 40C5 9A20 23AE 8A8E A7E2 4E38`. Install it from [knots-dev/Bitcoin-store](https://github.com/knots-dev/Bitcoin-store).
+
 <p align="center">
   <a href="https://apps.umbrel.com/app/bitcoin">
     <img src="https://github.com/user-attachments/assets/b9ff1e96-f899-41e3-8295-3247b88f6f79" alt="Logo">
